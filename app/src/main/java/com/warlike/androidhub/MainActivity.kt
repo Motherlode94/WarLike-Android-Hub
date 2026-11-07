@@ -1,0 +1,263 @@
+package com.warlike.androidhub
+
+import android.app.Activity
+import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.net.Uri
+import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.Button
+import android.widget.EditText
+import android.widget.HorizontalScrollView
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import android.widget.Toast
+import org.json.JSONObject
+
+/**
+ * WarLike Android Hub — launcher's UI is 100% native Android Views.
+ * Web apps remain external services; no WebView, fake APKs or arbitrary downloads.
+ */
+class MainActivity : Activity() {
+    private data class HubApp(
+        val id: String,
+        val name: String,
+        val category: String,
+        val description: String,
+        val url: String,
+        val delivery: String,
+    )
+    private val backdrop = Color.rgb(13, 17, 28)
+    private val panel = Color.rgb(25, 31, 48)
+    private val border = Color.rgb(55, 64, 91)
+    private val violet = Color.rgb(171, 153, 255)
+    private val muted = Color.rgb(172, 185, 210)
+    private val white = Color.rgb(244, 245, 255)
+    private val teal = Color.rgb(110, 223, 206)
+    private val prefs by lazy { getSharedPreferences("warlike.androidhub.v1", MODE_PRIVATE) }
+    private var apps = listOf<HubApp>()
+    private var filter = "Tout"
+    private var query = ""
+    private var favoritesOnly = false
+    private lateinit var results: LinearLayout
+    private lateinit var counter: TextView
+    private lateinit var tabs: LinearLayout
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        window.statusBarColor = backdrop
+        window.navigationBarColor = backdrop
+        apps = loadBundledApps()
+        draw()
+    }
+
+    private fun dp(n: Int): Int = (resources.displayMetrics.density * n + .5f).toInt()
+
+    private fun shape(color: Int, radius: Int = 16, stroke: Int? = null): GradientDrawable {
+        return GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = dp(radius).toFloat()
+            if (stroke != null) setStroke(dp(1), stroke)
+        }
+    }
+
+    private fun text(value: String, size: Float, color: Int = white, bold: Boolean = false) =
+        TextView(this).apply {
+            this.text = value
+            textSize = size
+            setTextColor(color)
+            if (bold) setTypeface(null, Typeface.BOLD)
+        }
+
+    private fun column(pad: Int = 0) = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        if (pad > 0) setPadding(dp(pad), dp(pad), dp(pad), dp(pad))
+    }
+
+    private fun addGap(parent: LinearLayout, height: Int) {
+        parent.addView(View(this), LinearLayout.LayoutParams(1, dp(height)))
+    }
+
+    private fun loadBundledApps(): List<HubApp> = try {
+        val source = assets.open("apps.json").bufferedReader().use { it.readText() }
+        val catalog = JSONObject(source)
+        require(catalog.getString("schema") == "warlike.android.hub.catalog.v1")
+        val list = catalog.getJSONArray("apps")
+        (0 until list.length()).map { i ->
+            val x = list.getJSONObject(i)
+            HubApp(
+                x.getString("id"), x.getString("name"),
+                x.getString("category"), x.getString("description"),
+                x.getString("url"), x.getString("delivery")
+            )
+        }.filter { app ->
+            val uri = Uri.parse(app.url)
+            uri.scheme == "https" && uri.host?.endsWith(".pages.dev") == true &&
+                app.delivery == "web"
+        }
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    private fun favorite(id: String) = prefs.getBoolean("favorite:$id", false)
+    private fun toggleFavorite(id: String) {
+        prefs.edit().putBoolean("favorite:$id", !favorite(id)).apply()
+        displayApps()
+    }
+
+    private fun draw() {
+        val scroll = ScrollView(this).apply { setBackgroundColor(backdrop); fillViewport = true }
+        val root = column(18)
+        scroll.addView(root)
+        setContentView(scroll)
+
+        val brand = text("W  WARLIKE", 16f, violet, true)
+        brand.letterSpacing = .17f
+        root.addView(brand)
+        addGap(root, 16)
+        root.addView(text("ANDROID HUB", 32f, white, true))
+        root.addView(text("Tes applications, réunies dans un lanceur Android natif.", 14f, muted))
+        addGap(root, 20)
+
+        val intro = column(15).apply { background = shape(panel, 18, border) }
+        intro.addView(text("ÉCOSYSTÈME WARLIKE", 12f, teal, true))
+        addGap(intro, 7)
+        intro.addView(text("${apps.size} applications référencées", 22f, white, true))
+        intro.addView(text("Les services web s'ouvrent dans ton navigateur. Les APK Android seront affichés séparément lorsqu'ils existeront.", 13f, muted))
+        root.addView(intro)
+        addGap(root, 20)
+
+        val search = EditText(this).apply {
+            hint = "Rechercher une application…"
+            setSingleLine(true)
+            textSize = 15f
+            setTextColor(white)
+            setHintTextColor(muted)
+            background = shape(panel, 12, border)
+            setPadding(dp(15), dp(9), dp(15), dp(9))
+            addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                    query = s?.toString().orEmpty()
+                    displayApps()
+                }
+                override fun afterTextChanged(s: Editable?) {}
+            })
+        }
+        root.addView(search, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
+        addGap(root, 13)
+
+        val tabScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+        }
+        tabs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        tabScroll.addView(tabs)
+        root.addView(tabScroll)
+        addGap(root, 13)
+
+        counter = text("", 13f, muted)
+        root.addView(counter)
+        addGap(root, 10)
+        results = column()
+        root.addView(results)
+        renderTabs()
+        displayApps()
+    }
+
+    private fun renderTabs() {
+        tabs.removeAllViews()
+        for (name in listOf("Tout", "Favoris", "Jeux", "Création", "Musique", "Communication", "Outils")) {
+            val active = if (name == "Favoris") favoritesOnly else !favoritesOnly && filter == name
+            val button = Button(this).apply {
+                text = name
+                isAllCaps = false
+                textSize = 12f
+                setTextColor(if (active) backdrop else white)
+                background = shape(if (active) violet else panel, 11, border)
+                setPadding(dp(12), 0, dp(12), 0)
+                setOnClickListener {
+                    favoritesOnly = name == "Favoris"
+                    if (!favoritesOnly) filter = name
+                    renderTabs()
+                    displayApps()
+                }
+            }
+            val params = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(42))
+            params.marginEnd = dp(8)
+            tabs.addView(button, params)
+        }
+    }
+
+    private fun displayApps() {
+        if (!::results.isInitialized) return
+        val found = apps.filter { a ->
+            (favoritesOnly && favorite(a.id) || !favoritesOnly && (filter == "Tout" || a.category == filter)) &&
+                (query.isBlank() || (a.name + " " + a.category + " " + a.description).contains(query, ignoreCase = true))
+        }
+        counter.text = "${found.size} résultat(s)"
+        results.removeAllViews()
+        if (found.isEmpty()) {
+            results.addView(text("Aucune application dans cette sélection.", 14f, muted))
+            return
+        }
+        for (app in found) results.addView(appCard(app))
+    }
+
+    private fun appCard(app: HubApp): View {
+        val card = column(16)
+        card.background = shape(panel, 17, border)
+        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        lp.bottomMargin = dp(12)
+        card.layoutParams = lp
+
+        val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val titleGroup = column()
+        titleGroup.addView(text(app.name, 19f, white, true))
+        titleGroup.addView(text(app.category.uppercase() + " · SERVICE WEB", 11f, teal, true))
+        header.addView(titleGroup, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val star = Button(this).apply {
+            text = if (favorite(app.id)) "★" else "☆"
+            contentDescription = "Ajouter ou retirer ${app.name} des favoris"
+            setTextColor(violet)
+            setBackgroundColor(Color.TRANSPARENT)
+            textSize = 25f
+            setOnClickListener { toggleFavorite(app.id) }
+        }
+        header.addView(star, LinearLayout.LayoutParams(dp(54), dp(48)))
+        card.addView(header)
+        addGap(card, 6)
+        card.addView(text(app.description, 14f, muted))
+        addGap(card, 12)
+
+        val launch = Button(this).apply {
+            text = "Ouvrir le service"
+            isAllCaps = false
+            setTextColor(backdrop)
+            background = shape(violet, 12)
+            setOnClickListener { openService(app) }
+        }
+        card.addView(launch, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)))
+        return card
+    }
+
+    private fun openService(app: HubApp) {
+        val uri = Uri.parse(app.url)
+        if (uri.scheme != "https" || uri.host?.endsWith(".pages.dev") != true) {
+            Toast.makeText(this, "Destination non autorisée", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
+        } catch (e: Exception) {
+            Toast.makeText(this, "Aucun navigateur disponible", Toast.LENGTH_SHORT).show()
+        }
+    }
+}
