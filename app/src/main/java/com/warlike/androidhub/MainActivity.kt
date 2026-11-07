@@ -50,6 +50,7 @@ class MainActivity : Activity() {
     private var filter = "Tout"
     private var query = ""
     private var favoritesOnly = false
+    private var recentOnly = false
     private lateinit var results: LinearLayout
     private lateinit var counter: TextView
     private lateinit var tabs: LinearLayout
@@ -58,9 +59,21 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor = backdrop
         window.navigationBarColor = backdrop
+        filter = savedInstanceState?.getString("filter") ?: "Tout"
+        query = savedInstanceState?.getString("query") ?: ""
+        favoritesOnly = savedInstanceState?.getBoolean("favoritesOnly") ?: false
+        recentOnly = savedInstanceState?.getBoolean("recentOnly") ?: false
         apps = loadBundledApps()
         nativePackages = try { AndroidPackages.fromJson(assets.open("android-apps.json").bufferedReader().use { it.readText() }) } catch (_: Exception) { emptyList() }
         draw()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("filter", filter)
+        outState.putString("query", query)
+        outState.putBoolean("favoritesOnly", favoritesOnly)
+        outState.putBoolean("recentOnly", recentOnly)
+        super.onSaveInstanceState(outState)
     }
 
     private fun dp(n: Int): Int = (resources.displayMetrics.density * n + .5f).toInt()
@@ -118,7 +131,7 @@ class MainActivity : Activity() {
     }
 
     private fun draw() {
-        val scroll = ScrollView(this).apply { setBackgroundColor(backdrop); fillViewport = true }
+        val scroll = ScrollView(this).apply { setBackgroundColor(backdrop); isFillViewport = true }
         val root = column(18)
         scroll.addView(root)
         setContentView(scroll)
@@ -134,7 +147,7 @@ class MainActivity : Activity() {
         val intro = column(15).apply { background = shape(panel, 18, border) }
         intro.addView(text("ÉCOSYSTÈME WARLIKE", 12f, teal, true))
         addGap(intro, 7)
-        intro.addView(text("${apps.size} applications référencées", 22f, white, true))
+        intro.addView(text("${apps.size} services web référencés", 22f, white, true))
         intro.addView(text("Les services web s'ouvrent dans ton navigateur. Les APK Android seront affichés séparément lorsqu'ils existeront.", 13f, muted))
         root.addView(intro)
         addGap(root, 13)
@@ -156,7 +169,9 @@ class MainActivity : Activity() {
                     isAllCaps = false
                     setOnClickListener {
                         try {
-                            downloads[pkg.id] = AndroidPackages.startDownload(this@MainActivity, pkg)
+                            val downloadId = AndroidPackages.startDownload(this@MainActivity, pkg)
+                            downloads[pkg.id] = downloadId
+                            prefs.edit().putLong("download:${pkg.id}:${pkg.versionCode}", downloadId).apply()
                             Toast.makeText(this@MainActivity, "Téléchargement lancé : " + pkg.name, Toast.LENGTH_LONG).show()
                         } catch (error: Exception) {
                             Toast.makeText(this@MainActivity, "Téléchargement impossible : " + error.message, Toast.LENGTH_LONG).show()
@@ -168,7 +183,7 @@ class MainActivity : Activity() {
                     text = "Vérifier et installer"
                     isAllCaps = false
                     setOnClickListener {
-                        val id = downloads[pkg.id]
+                        val id = downloads[pkg.id] ?: prefs.getLong("download:${pkg.id}:${pkg.versionCode}", -1L).takeIf { it >= 0 }
                         if (id == null) {
                             Toast.makeText(this@MainActivity, "Télécharge d'abord l'APK.", Toast.LENGTH_SHORT).show()
                             return@setOnClickListener
@@ -200,6 +215,8 @@ class MainActivity : Activity() {
             setHintTextColor(muted)
             background = shape(panel, 12, border)
             setPadding(dp(15), dp(9), dp(15), dp(9))
+            setText(query)
+            contentDescription = "Rechercher dans les services WarLike"
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
@@ -231,8 +248,12 @@ class MainActivity : Activity() {
 
     private fun renderTabs() {
         tabs.removeAllViews()
-        for (name in listOf("Tout", "Favoris", "Jeux", "Création", "Musique", "Communication", "Outils")) {
-            val active = if (name == "Favoris") favoritesOnly else !favoritesOnly && filter == name
+        for (name in listOf("Tout", "Favoris", "Récents", "Jeux", "Création", "Musique", "Communication", "Outils")) {
+            val active = when (name) {
+                "Favoris" -> favoritesOnly
+                "Récents" -> recentOnly
+                else -> !favoritesOnly && !recentOnly && filter == name
+            }
             val button = Button(this).apply {
                 text = name
                 isAllCaps = false
@@ -242,7 +263,8 @@ class MainActivity : Activity() {
                 setPadding(dp(12), 0, dp(12), 0)
                 setOnClickListener {
                     favoritesOnly = name == "Favoris"
-                    if (!favoritesOnly) filter = name
+                    recentOnly = name == "Récents"
+                    if (!favoritesOnly && !recentOnly) filter = name
                     renderTabs()
                     displayApps()
                 }
@@ -256,13 +278,26 @@ class MainActivity : Activity() {
     private fun displayApps() {
         if (!::results.isInitialized) return
         val found = apps.filter { a ->
-            (favoritesOnly && favorite(a.id) || !favoritesOnly && (filter == "Tout" || a.category == filter)) &&
-                (query.isBlank() || (a.name + " " + a.category + " " + a.description).contains(query, ignoreCase = true))
+            val matchesFilter = when {
+                favoritesOnly -> favorite(a.id)
+                recentOnly -> prefs.getLong("recent:${a.id}", 0L) > 0L
+                else -> filter == "Tout" || a.category == filter
+            }
+            matchesFilter && (query.isBlank() ||
+                (a.name + " " + a.category + " " + a.description).contains(query.trim(), ignoreCase = true))
+        }.let { items ->
+            if (recentOnly) items.sortedByDescending { prefs.getLong("recent:${it.id}", 0L) }
+            else items.sortedBy { it.name.lowercase() }
         }
         counter.text = "${found.size} résultat(s)"
         results.removeAllViews()
         if (found.isEmpty()) {
-            results.addView(text("Aucune application dans cette sélection.", 14f, muted))
+            val message = when {
+                recentOnly && query.isBlank() -> "Les services que tu ouvres apparaîtront ici."
+                favoritesOnly && query.isBlank() -> "Ajoute des services à tes favoris avec l’étoile."
+                else -> "Aucun résultat. Essaie un autre mot ou une autre catégorie."
+            }
+            results.addView(text(message, 14f, muted))
             return
         }
         for (app in found) results.addView(appCard(app))
@@ -282,7 +317,7 @@ class MainActivity : Activity() {
         header.addView(titleGroup, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val star = Button(this).apply {
             text = if (favorite(app.id)) "★" else "☆"
-            contentDescription = "Ajouter ou retirer ${app.name} des favoris"
+            contentDescription = if (favorite(app.id)) "Retirer ${app.name} des favoris" else "Ajouter ${app.name} aux favoris"
             setTextColor(violet)
             setBackgroundColor(Color.TRANSPARENT)
             textSize = 25f
@@ -313,6 +348,8 @@ class MainActivity : Activity() {
         }
         try {
             startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
+            prefs.edit().putLong("recent:${app.id}", System.currentTimeMillis()).apply()
+            if (recentOnly) displayApps()
         } catch (e: Exception) {
             Toast.makeText(this, "Aucun navigateur disponible", Toast.LENGTH_SHORT).show()
         }
