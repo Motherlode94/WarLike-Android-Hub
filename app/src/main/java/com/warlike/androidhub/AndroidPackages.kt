@@ -1,15 +1,12 @@
 package com.warlike.androidhub
 
 import android.app.DownloadManager
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
-import android.widget.Toast
 import org.json.JSONObject
 import java.security.MessageDigest
 
@@ -27,7 +24,7 @@ data class WarLikePackage(
 )
 
 object AndroidPackages {
-    private val expectedHost = setOf("github.com", "objects.githubusercontent.com")
+    private val officialRelease = Regex("^https://github\\.com/Motherlode94/WarLike-[A-Za-z0-9-]+/releases/download/[A-Za-z0-9._-]+/[A-Za-z0-9._-]+\\.apk$")
     private val idPattern = Regex("^com\\.warlike\\.[a-z0-9.]{2,80}$")
     private val digestPattern = Regex("^[a-f0-9]{64}$")
 
@@ -37,8 +34,8 @@ object AndroidPackages {
             item.packageName.matches(idPattern) &&
             item.versionCode > 0 &&
             uri.scheme == "https" &&
-            uri.host in expectedHost &&
-            uri.path?.endsWith(".apk", true) == true &&
+            uri.host == "github.com" &&
+            item.downloadUrl.matches(officialRelease) &&
             item.sha256.matches(digestPattern)
     }
 
@@ -61,8 +58,8 @@ object AndroidPackages {
     fun installedVersion(context: Context, packageName: String): Long? = try {
         val info = if (Build.VERSION.SDK_INT >= 33)
             context.packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0))
-        else @Suppress("DEPRECATION") context.packageManager.getPackageInfo(packageName, 0)
-        if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else @Suppress("DEPRECATION") info.versionCode.toLong()
+        else context.packageManager.getPackageInfo(packageName, 0)
+        if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
     } catch (_: PackageManager.NameNotFoundException) { null }
 
     fun startDownload(context: Context, item: WarLikePackage): Long {
@@ -94,7 +91,14 @@ object AndroidPackages {
                 hash.update(bytes, 0, size)
             }
         } ?: return null
-        return if (hash.digest().joinToString("") { "%02x".format(it) } == expected.sha256) uri else null
+        if (hash.digest().joinToString("") { "%02x".format(it) } != expected.sha256) return null
+        // Check actual APK package metadata before passing it to Android's installer.
+        val apkPath = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)?.resolve(expected.id + "-" + expected.versionCode + ".apk") ?: return null
+        val archive = context.packageManager.getPackageArchiveInfo(apkPath.absolutePath, 0) ?: return null
+        if (archive.packageName != expected.packageName) return null
+        val archiveVersion = if (Build.VERSION.SDK_INT >= 28) archive.longVersionCode else archive.versionCode.toLong()
+        if (archiveVersion != expected.versionCode) return null
+        return uri
     }
 
     fun openAndroidInstaller(context: Context, uri: Uri) {
