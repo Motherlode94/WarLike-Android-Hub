@@ -103,6 +103,14 @@ class MainActivity : Activity() {
         parent.addView(View(this), LinearLayout.LayoutParams(1, dp(height)))
     }
 
+    private fun isAllowedService(url: String): Boolean {
+        val uri = Uri.parse(url)
+        val host = uri.host ?: return false
+        return uri.scheme == "https" && uri.userInfo == null && (uri.port == -1 || uri.port == 443) &&
+            (host.endsWith(".pages.dev") || host == "warlike-mail.vikktor7.chatgpt.site" ||
+                host == "warlike-server.vikktor7.chatgpt.site")
+    }
+
     private fun loadBundledApps(): List<HubApp> = try {
         val source = assets.open("apps.json").bufferedReader().use { it.readText() }
         val catalog = JSONObject(source)
@@ -116,9 +124,7 @@ class MainActivity : Activity() {
                 x.getString("url"), x.getString("delivery")
             )
         }.filter { app ->
-            val uri = Uri.parse(app.url)
-            uri.scheme == "https" && uri.host?.endsWith(".pages.dev") == true &&
-                app.delivery == "web"
+            isAllowedService(app.url) && app.delivery == "web"
         }
     } catch (e: Exception) {
         emptyList()
@@ -342,7 +348,7 @@ class MainActivity : Activity() {
 
     private fun openService(app: HubApp) {
         val uri = Uri.parse(app.url)
-        if (uri.scheme != "https" || uri.host?.endsWith(".pages.dev") != true) {
+        if (!isAllowedService(app.url)) {
             Toast.makeText(this, "Destination non autorisée", Toast.LENGTH_SHORT).show()
             return
         }

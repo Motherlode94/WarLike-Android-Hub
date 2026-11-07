@@ -1,6 +1,6 @@
 {
   "schema": "warlike.android.hub.catalog.v1",
-  "version": 1,
+  "version": 2,
   "apps": [
     {
       "id": "engine",
@@ -125,6 +125,42 @@
       "category": "Outils",
       "description": "Extensions pour les logiciels",
       "url": "https://warlike-asset-stores.pages.dev/extensions.html",
+      "delivery": "web",
+      "androidApk": null
+    },
+    {
+      "id": "hub",
+      "name": "WarLike Hub",
+      "category": "Outils",
+      "description": "Portail central de l’écosystème WarLike",
+      "url": "https://warlike-hub.pages.dev/",
+      "delivery": "web",
+      "androidApk": null
+    },
+    {
+      "id": "mail",
+      "name": "WarLike Mail",
+      "category": "Communication",
+      "description": "Messagerie WarLike",
+      "url": "https://warlike-mail.vikktor7.chatgpt.site/",
+      "delivery": "web",
+      "androidApk": null
+    },
+    {
+      "id": "server",
+      "name": "WarLike Server",
+      "category": "Communication",
+      "description": "Console d’infrastructure WarLike",
+      "url": "https://warlike-server.vikktor7.chatgpt.site/serveur",
+      "delivery": "web",
+      "androidApk": null
+    },
+    {
+      "id": "browser",
+      "name": "WarLike Browser",
+      "category": "Outils",
+      "description": "Page du navigateur WarLike pour ordinateur",
+      "url": "https://warlike-browser.pages.dev/",
       "delivery": "web",
       "androidApk": null
     }
