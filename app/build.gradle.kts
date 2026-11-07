@@ -12,8 +12,27 @@ android {
         versionCode = 1
         versionName = "0.1.0"
     }
+    signingConfigs {
+        create("ciRelease") {
+            val store = providers.environmentVariable("WARLIKE_KEYSTORE_PATH").orNull
+            val storePass = providers.environmentVariable("WARLIKE_KEYSTORE_PASSWORD").orNull
+            val alias = providers.environmentVariable("WARLIKE_KEY_ALIAS").orNull
+            val keyPass = providers.environmentVariable("WARLIKE_KEY_PASSWORD").orNull
+            if (!store.isNullOrBlank() && !storePass.isNullOrBlank() && !alias.isNullOrBlank() && !keyPass.isNullOrBlank()) {
+                storeFile = file(store)
+                storePassword = storePass
+                keyAlias = alias
+                keyPassword = keyPass
+            }
+        }
+    }
     buildTypes {
-        release { isMinifyEnabled = false }
+        release {
+            isMinifyEnabled = false
+            if (!providers.environmentVariable("WARLIKE_KEYSTORE_PATH").orNull.isNullOrBlank()) {
+                signingConfig = signingConfigs.getByName("ciRelease")
+            }
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
