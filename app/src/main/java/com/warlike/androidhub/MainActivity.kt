@@ -108,7 +108,8 @@ class MainActivity : Activity() {
         val host = uri.host ?: return false
         return uri.scheme == "https" && uri.userInfo == null && (uri.port == -1 || uri.port == 443) &&
             (host.endsWith(".pages.dev") || host == "warlike-mail.vikktor7.chatgpt.site" ||
-                host == "warlike-server.vikktor7.chatgpt.site")
+                host == "warlike-server.vikktor7.chatgpt.site" ||
+                (host == "github.com" && (uri.path == "/Motherlode94/WarLike-OSA" || uri.path == "/Motherlode94/WarLike-OSW")))
     }
 
     private fun loadBundledApps(): List<HubApp> = try {
@@ -153,7 +154,7 @@ class MainActivity : Activity() {
         val intro = column(15).apply { background = shape(panel, 18, border) }
         intro.addView(text("ÉCOSYSTÈME WARLIKE", 12f, teal, true))
         addGap(intro, 7)
-        intro.addView(text("${apps.size} services web référencés", 22f, white, true))
+        intro.addView(text("${apps.size} liens WarLike référencés", 22f, white, true))
         intro.addView(text("Les services web s'ouvrent dans ton navigateur. Les APK Android seront affichés séparément lorsqu'ils existeront.", 13f, muted))
         root.addView(intro)
         addGap(root, 13)
@@ -319,7 +320,7 @@ class MainActivity : Activity() {
         val header = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val titleGroup = column()
         titleGroup.addView(text(app.name, 19f, white, true))
-        titleGroup.addView(text(app.category.uppercase() + " · SERVICE WEB", 11f, teal, true))
+        titleGroup.addView(text(app.category.uppercase() + if (Uri.parse(app.url).host == "github.com") " · PROJET GITHUB" else " · SERVICE WEB", 11f, teal, true))
         header.addView(titleGroup, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val star = Button(this).apply {
             text = if (favorite(app.id)) "★" else "☆"
@@ -336,7 +337,7 @@ class MainActivity : Activity() {
         addGap(card, 12)
 
         val launch = Button(this).apply {
-            text = "Ouvrir le service"
+            text = if (Uri.parse(app.url).host == "github.com") "Voir le projet GitHub" else "Ouvrir le service"
             isAllCaps = false
             setTextColor(backdrop)
             background = shape(violet, 12)
