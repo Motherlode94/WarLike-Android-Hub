@@ -35,4 +35,50 @@ class HubSmokeTest {
         assertFalse(AndroidPackages.validate(valid.copy(packageName = "com.other.app")))
         assertFalse(AndroidPackages.validate(valid.copy(downloadUrl = "https://github.com/outsider/fake/releases/download/v1/test.apk")))
     }
+    @Test fun favoriteSurvivesClosingAndReopening() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val preferences = context.getSharedPreferences("warlike.androidhub.v1", android.content.Context.MODE_PRIVATE)
+        val oldValue = preferences.getBoolean("favorite:engine", false)
+        preferences.edit().putBoolean("favorite:engine", false).commit()
+        fun start(): Activity {
+            val intent = android.content.Intent(context, MainActivity::class.java)
+                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            return instrumentation.startActivitySync(intent)
+        }
+        fun find(view: android.view.View, description: String): android.view.View? {
+            if (view.contentDescription?.toString() == description) return view
+            if (view is android.view.ViewGroup) {
+                for (index in 0 until view.childCount) {
+                    val result = find(view.getChildAt(index), description)
+                    if (result != null) return result
+                }
+            }
+            return null
+        }
+        var activity: Activity? = null
+        try {
+            val first = start()
+            activity = first
+            instrumentation.runOnMainSync {
+                val star = find(first.window.decorView, "Ajouter WarLike Engine aux favoris")
+                assertNotNull("Bouton de favori introuvable", star)
+                star!!.performClick()
+            }
+            instrumentation.waitForIdleSync()
+            assertTrue(preferences.getBoolean("favorite:engine", false))
+            instrumentation.runOnMainSync { first.finish() }
+            instrumentation.waitForIdleSync()
+            val second = start()
+            activity = second
+            instrumentation.runOnMainSync {
+                assertNotNull("Favori perdu après réouverture",
+                    find(second.window.decorView, "Retirer WarLike Engine des favoris"))
+            }
+        } finally {
+            activity?.let { current -> instrumentation.runOnMainSync { current.finish() } }
+            preferences.edit().putBoolean("favorite:engine", oldValue).commit()
+        }
+    }
+
 }
