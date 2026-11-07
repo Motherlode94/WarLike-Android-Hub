@@ -1,6 +1,7 @@
 package com.warlike.androidhub
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.res.Configuration
 import android.graphics.Color
@@ -44,6 +45,8 @@ class MainActivity : Activity() {
     private val teal = Color.rgb(110, 223, 206)
     private val prefs by lazy { getSharedPreferences("warlike.androidhub.v1", MODE_PRIVATE) }
     private var apps = listOf<HubApp>()
+    private var nativePackages = listOf<WarLikePackage>()
+    private val downloads = mutableMapOf<String, Long>()
     private var filter = "Tout"
     private var query = ""
     private var favoritesOnly = false
@@ -56,6 +59,7 @@ class MainActivity : Activity() {
         window.statusBarColor = backdrop
         window.navigationBarColor = backdrop
         apps = loadBundledApps()
+        nativePackages = try { AndroidPackages.fromJson(assets.open("android-apps.json").bufferedReader().use { it.readText() }) } catch (_: Exception) { emptyList() }
         draw()
     }
 
@@ -133,6 +137,59 @@ class MainActivity : Activity() {
         intro.addView(text("${apps.size} applications référencées", 22f, white, true))
         intro.addView(text("Les services web s'ouvrent dans ton navigateur. Les APK Android seront affichés séparément lorsqu'ils existeront.", 13f, muted))
         root.addView(intro)
+        addGap(root, 13)
+        val nativeHeader = text("APPLICATIONS ANDROID NATIVES", 17f, white, true)
+        root.addView(nativeHeader)
+        addGap(root, 8)
+        val nativeArea = column(12).apply { background = shape(panel, 14, border) }
+        if (nativePackages.isEmpty()) {
+            nativeArea.addView(text("Aucun APK Android WarLike officiel n'est encore publié dans le catalogue.", 14f, muted))
+            addGap(nativeArea, 6)
+            nativeArea.addView(text("Les applications Web ci-dessous restent accessibles. Les prochaines versions APK apparaîtront ici après validation des signatures et des empreintes.", 12f, muted))
+        } else {
+            for (pkg in nativePackages) {
+                nativeArea.addView(text(pkg.name + " · v" + pkg.versionCode, 16f, white, true))
+                val installed = AndroidPackages.installedVersion(this, pkg.packageName)
+                nativeArea.addView(text(if (installed == null) "Version Android à installer" else "Version système détectée : " + installed, 12f, muted))
+                val download = Button(this).apply {
+                    text = "Télécharger APK officiel"
+                    isAllCaps = false
+                    setOnClickListener {
+                        try {
+                            downloads[pkg.id] = AndroidPackages.startDownload(this@MainActivity, pkg)
+                            Toast.makeText(this@MainActivity, "Téléchargement lancé : " + pkg.name, Toast.LENGTH_LONG).show()
+                        } catch (error: Exception) {
+                            Toast.makeText(this@MainActivity, "Téléchargement impossible : " + error.message, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+                nativeArea.addView(download)
+                val verify = Button(this).apply {
+                    text = "Vérifier et installer"
+                    isAllCaps = false
+                    setOnClickListener {
+                        val id = downloads[pkg.id]
+                        if (id == null) {
+                            Toast.makeText(this@MainActivity, "Télécharge d'abord l'APK.", Toast.LENGTH_SHORT).show()
+                            return@setOnClickListener
+                        }
+                        try {
+                            val uri = AndroidPackages.verifyCompleted(this@MainActivity, id, pkg)
+                            if (uri == null) {
+                                Toast.makeText(this@MainActivity, "Téléchargement en cours ou APK invalide.", Toast.LENGTH_LONG).show()
+                            } else {
+                                AndroidPackages.openAndroidInstaller(this@MainActivity, uri)
+                            }
+                        } catch (error: Exception) {
+                            Toast.makeText(this@MainActivity, "Installation impossible : " + error.message, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+                nativeArea.addView(verify)
+                addGap(nativeArea, 14)
+            }
+        }
+        root.addView(nativeArea)
         addGap(root, 20)
 
         val search = EditText(this).apply {
